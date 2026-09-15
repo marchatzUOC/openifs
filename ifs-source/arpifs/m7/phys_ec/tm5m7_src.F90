@@ -78,8 +78,6 @@ USE TM5M7_EMIS_DATA, ONLY : MODAL_EMISSIONS, &
   &                    rad_emi_bf_sol,    rad_emi_bb_sol,                      &
   &                    frac_pom_sol_bf,   frac_pom_sol_bb, frac_pom_sol_ff,    &
   &                    frac_bc_sol_bf,    frac_bc_sol_bb,  frac_bc_sol_ff
-USE TEGEN_DUST_SCHEME_MOD, ONLY : TEGEN_DUST_SCHEME
-USE ECMWF_DUST_SCHEME_MOD, ONLY : ECMWF_DUST_SCHEME
 USE OIFS_TO_HAM, ONLY: ind_oifs_ham !% ind_gas_OIFS
 
 IMPLICIT NONE
@@ -209,6 +207,7 @@ REAL(KIND=JPHOOK)    :: ZHOOK_HANDLE
 #include "surf_inq.h"
 
 #include "tm5m7_src_ss.intfb.h"
+#include "tm5m7_src_dust.intfb.h"
 !#include "satur.intfb.h"
 !#include "aer_volce.intfb.h"
 !#include "aer_stratcl.intfb.h"
@@ -417,28 +416,15 @@ ENDIF
 !
 PAERFLX(KIDIA:KFDIA,1:12,1:9)=0._JPRB
 ZAERMAP(KIDIA:KFDIA,1:5)=0._JPRB
-SELECT CASE (NDDUST)
-CASE (8)
-  CALL TEGEN_DUST_SCHEME( YDEPHY, YDEAERMAP, YDEAERSRC, KIDIA, KFDIA, KLON, KLEV, KTILES, KSW,&
-                        & PLSM, ZWNDDU, PSNS, PZ0M, &
-                        & PAP(:,KLEV), PTL,  PSOIL_TYPE, &
-                        & PFRTI, PCVL, PCVH, KTVL, KTVH, &
-                        & emis_mass, emis_number, PAERFLX, ZGLON, ZGLAT, &
-                        & ZRWPWP, ZRWSAT, ZAERMAP, PALB, PALBD, PWS1, PHSDFOR, &
-                        & IMM,ISOILPH1, ISOILPH2, ISOILPH3, ISOILPH4, ISOILPH5, &
-                        & IZ0AM, IPOTSRC, ISOILTYPE, IAREA, ICULT,IZ0M, IFPAR, GPGAW, &
-                        & ILAI_MAX, ILAI_AVG)
-CASE (3)
-  CALL ECMWF_DUST_SCHEME( YDEPHY, YDEAERMAP, YDEAERSRC, KIDIA, KFDIA, KLON, KLEV, KTILES, KSW,&
-                        & PLSM, ZWNDDU, PSNS, PZ0M, &
-                        & PAP(:,KLEV), PTL,  PSOIL_TYPE, &
-                        & PFRTI, PCVL, PCVH, KTVL, KTVH, &
-                        & emis_mass, emis_number, PAERFLX, ZGLON, ZGLAT, &
-                        & ZRWPWP, ZRWSAT, ZAERMAP, PALB, PALBD, PWS1, PHSDFOR, &
-                        & IMM,ISOILPH1, ISOILPH2, ISOILPH3, ISOILPH4, ISOILPH5, &
-                        & IZ0AM, IPOTSRC, ISOILTYPE, IAREA, ICULT,IZ0M, IFPAR, GPGAW, &
-                        & ILAI_MAX, ILAI_AVG)
-END SELECT
+CALL TM5M7_SRC_DUST( YDEPHY, YDEAERMAP, YDEAERSRC, KIDIA, KFDIA, KLON, KLEV, KTILES, KSW,&
+                   & PLSM, ZWNDDU, PSNS, PZ0M, &
+                   & PAP(:,KLEV), PTL,  PSOIL_TYPE, &
+                   & PFRTI, PCVL, PCVH, KTVL, KTVH, &
+                   & emis_mass, emis_number, PAERFLX, ZGLON, ZGLAT, &
+                   & ZRWPWP, ZRWSAT, ZAERMAP, PALB, PALBD, PWS1, PHSDFOR, &
+                   & IMM,ISOILPH1, ISOILPH2, ISOILPH3, ISOILPH4, ISOILPH5, &
+                   & IZ0AM, IPOTSRC, ISOILTYPE, IAREA, ICULT,IZ0M, IFPAR, GPGAW, &
+                   & ILAI_MAX, ILAI_AVG)
 !-----------------------------------------------------------------------
 !*       3.0   PARTICULATE ORGANIC MATTER
 !              ---------------------------------------------------------
@@ -523,3 +509,4 @@ END ASSOCIATE
 
 IF (LHOOK) CALL DR_HOOK('TM5M7_SRC',1,ZHOOK_HANDLE)
 END SUBROUTINE TM5M7_SRC
+
