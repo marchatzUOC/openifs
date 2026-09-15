@@ -74,27 +74,22 @@ IF (LHOOK) CALL DR_HOOK('TM5M7_SRC_DUST',0,ZHOOK_HANDLE)
 
 SELECT CASE (YDEAERSRC%NDDUST)
 CASE (8)
-  CALL TEGEN_DUST_SCHEME( YDEPHY, YDEAERMAP, YDEAERSRC,                 &
-                        & KIDIA, KFDIA, KLON, KLEV, KTILES, KSW,        &
-                        & PLSM , PWIND, PSNS, PZ0M,                     &
-                        & SP, PTL, PSOIL_TYPE,                          &
+  CALL TEGEN_DUST_SCHEME( YDEAERSRC,                                   &
+                        & KIDIA, KFDIA, KLON, KLEV, KTILES,            &
+                        & PLSM , PWIND, PSNS,                          &
+                        & SP, PTL,                                     &
                         & PFRTI, PCVL, PCVH, KTVL, KTVH,                &
-                        & EMIS_MASS, EMIS_NUMBER ,PAERFLX,PGLON, PGLAT, &
-                        & PRWPWP,PRWSAT,PAERMAP,PALB,PALBD,PWS1,PHSDFOR,&
-                        & IMM,ISOILPH1, ISOILPH2, ISOILPH3, ISOILPH4, ISOILPH5, &
-                        & IZ0AM, IPOTSRC, ISOILTYPE, IAREA, ICULT,IZ0M, IFPAR, GPGAW,&
+                        & EMIS_MASS, EMIS_NUMBER,                       &
+                        & ISOILPH3, ISOILPH4,                           &
+                        & IZ0AM, IPOTSRC, ISOILTYPE, ICULT, IZ0M, IFPAR,&
                         & ILAI_MAX,ILAI_AVG)
 CASE (3)
-  CALL ECMWF_DUST_SCHEME( YDEPHY, YDEAERMAP, YDEAERSRC,                 &
+  CALL ECMWF_DUST_SCHEME( YDEPHY, YDEAERMAP,                            &
                         & KIDIA, KFDIA, KLON, KLEV, KTILES, KSW,        &
-                        & PLSM , PWIND, PSNS, PZ0M,                     &
-                        & SP, PTL, PSOIL_TYPE,                          &
-                        & PFRTI, PCVL, PCVH, KTVL, KTVH,                &
-                        & EMIS_MASS, EMIS_NUMBER ,PAERFLX,PGLON, PGLAT, &
-                        & PRWPWP,PRWSAT,PAERMAP,PALB,PALBD,PWS1,PHSDFOR,&
-                        & IMM,ISOILPH1, ISOILPH2, ISOILPH3, ISOILPH4, ISOILPH5, &
-                        & IZ0AM, IPOTSRC, ISOILTYPE, IAREA, ICULT,IZ0M, IFPAR, GPGAW,&
-                        & ILAI_MAX,ILAI_AVG)
+                        & PLSM , PWIND, PSNS,                           &
+                        & PFRTI,                                        &
+                        & EMIS_MASS, EMIS_NUMBER, PGLON, PGLAT,         &
+                        & PRWPWP,PRWSAT,PAERMAP,PALB,PALBD,PWS1,PHSDFOR)
 END SELECT
 
 IF (LHOOK) CALL DR_HOOK('TM5M7_SRC_DUST',1,ZHOOK_HANDLE)

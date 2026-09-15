@@ -2,103 +2,36 @@ MODULE ECMWF_DUST_SCHEME_MOD
 
 CONTAINS
 
-SUBROUTINE ECMWF_DUST_SCHEME( YDEPHY, YDEAERMAP, YDEAERSRC,                 &
+SUBROUTINE ECMWF_DUST_SCHEME( YDEPHY, YDEAERMAP,                           &
                          & KIDIA, KFDIA, KLON, KLEV, KTILES, KSW,        &
-                         & PLSM , PWIND, PSNS, PZ0M,                     &
-                         & SP, PTL, PSOIL_TYPE,                          &
-                         & PFRTI, PCVL, PCVH, KTVL, KTVH,                &
-                         & EMIS_MASS, EMIS_NUMBER ,PAERFLX,PGLON, PGLAT, &
-                         & PRWPWP,PRWSAT,PAERMAP,PALB,PALBD,PWS1,PHSDFOR,&
-                         & IMM,ISOILPH1, ISOILPH2, ISOILPH3, ISOILPH4, ISOILPH5, &
-                         & IZ0AM, IPOTSRC, ISOILTYPE, IAREA, ICULT,IZ0M, IFPAR, GPGAW,&
-                         & ILAI_MAX,ILAI_AVG)
+                         & PLSM , PWIND, PSNS,                           &
+                         & PFRTI,                                        &
+                         & EMIS_MASS, EMIS_NUMBER, PGLON, PGLAT,         &
+                         & PRWPWP, PRWSAT, PAERMAP, PALB, PALBD, PWS1,   &
+                         & PHSDFOR)
 
 ! --- IFS/OpenIFS modules ------------------------------------------------------
 
-USE TYPE_MODEL,ONLY : MODEL
-USE YOMLUN,    ONLY : NULOUT
 USE PARKIND1  ,ONLY : JPIM     ,JPRB
 USE YOMHOOK   ,ONLY : LHOOK,   DR_HOOK, JPHOOK
 USE YOMCST,    ONLY : RPI
 
 ! -- M7 modules ----------------------------------------------------------------
-USE TM5M7_DATA,      ONLY: NMOD, MODE_ACI, MODE_COI, sigma, sigma_lognormal,   &
+USE TM5M7_DATA,      ONLY: NMOD, MODE_ACI, MODE_COI, sigma, &
                          & iacci,icoai
 !                       
-USE TM5M7_EMIS_DATA, ONLY: MODAL_EMISSIONS,                           &
-                         & nsoilph, nfpar,    &
-                         & vkarman!,         &
+USE TM5M7_EMIS_DATA, ONLY: MODAL_EMISSIONS
 
 USE YOEPHY   , ONLY : TEPHY
 USE YOEAERMAP, ONLY : TEAERMAP
-USE YOEAERSRC, ONLY : TEAERSRC
 
 !------------------------------------------------------------------------------!
 !             0.6 ARGUMENTS TEGEN                                              !
 !                                                                              !
 !------------------------------------------------------------------------------!
 
-! parameters for online dust calculations
-INTEGER, PARAMETER            :: ntraced=8                     ! number of coarse-grained bins
-                                                                 ! in the original emission model
-INTEGER, PARAMETER            :: nbin=24                       ! number of discretization points per bin
-INTEGER, PARAMETER            :: nclass=ntraced*nbin           ! total number of discretization points
-INTEGER, PARAMETER            :: nats=12                       ! number of soil types
-INTEGER, PARAMETER            :: nmode=4                       ! number of particle size distributions in soils,
-                                                                 ! which distinguishes between clay, silt,
-                                                                 ! medium/fine sand, and coarse sand
-INTEGER, PARAMETER            :: nspe=nmode*3+2                ! for explanation, see below
-REAL(KIND=JPRB), PARAMETER    :: xmair=28.94 ! mass of air, g/mol
-REAL(KIND=JPRB), PARAMETER    :: xmdust=xmair
-! Constants used in the parameterization of the efficient friction velocity ratio,
-! see Eqs. (17-20) in MB95:
-REAL(KIND=JPRB), PARAMETER    :: aeff=0.35
-REAL(KIND=JPRB), PARAMETER    :: xeff=10.
-REAL(KIND=JPRB), PARAMETER    :: u1fac=0.6    ! 0.7 in EC-Earth 3.2.3
-REAL(KIND=JPRB), PARAMETER    :: ddcal=0.1   
-
-REAL(KIND=JPRB), PARAMETER    :: cd=1.2507E-06                 ! flux dimensioning parameter [g s^2/cm^4]
-REAL(KIND=JPRB), PARAMETER    :: z0_min=1.e-2
-REAL(KIND=JPRB), PARAMETER    :: lai_lim=0.25
-REAL(KIND=JPRB), PARAMETER    :: lai_lim2=0.5
-REAL(KIND=JPRB), PARAMETER    :: d_thrsld=2.31e-6           ! threshold value
-REAL(KIND=JPRB), PARAMETER    :: Dmin=2.0210403762e-5          ! diameter (cm) at first discretization point
-REAL(KIND=JPRB), PARAMETER    :: Dmax=0.126667434757           ! diameter (cm) at last discretization point
-REAL(KIND=JPRB), PARAMETER    :: Dstep=0.04577551202           ! diameter increment in log-space
-REAL(KIND=JPRB), PARAMETER    :: grav =  9.80665               ! m/s2
-! Constants in the parameterization of the Reynolds number,
-! see Eq. (5) in MB95:
-REAL(KIND=JPRB), PARAMETER    :: a_rnolds=1331.647             ! Reynolds constant
-REAL(KIND=JPRB), PARAMETER    :: b_rnolds=0.38194              ! Reynolds constant
-REAL(KIND=JPRB), PARAMETER    :: x_rnolds=1.561228             ! Reynolds constant
-REAL(KIND=JPRB), PARAMETER    :: roa=0.001227                  ! reference air density (g/cm^3)
-
-REAL(KIND=JPRB)               :: rho_air                       ! variable air density (g/cm^3)
-REAL(KIND=JPRB), PARAMETER    :: rgas =8.3144
-REAL(KIND=JPRB), PARAMETER    :: airfac=1./rgas*xmair*1.e-6    ! factor for rho_air
-REAL(KIND=JPRB)               :: airdens_ratio, airdens_ratio2
-REAL(KIND=JPRB), PARAMETER    :: umin=13.75                    ! minimum threshold friction velocity (cm/s)
-REAL(KIND=JPRB), PARAMETER    :: ZZ=1000.                      ! wind measurement height (cm)
+! parameters for ECMWF dust calculations
 REAL(KIND=JPRB), PARAMETER    :: ddust   = 2.650              ! Density          du     [g cm-3]
-REAL(KIND=JPRB), PARAMETER    :: dust_density = ddust * 1.e3
-
-INTEGER(KIND=JPIM), PARAMETER :: min_ai=1
-INTEGER(KIND=JPIM), PARAMETER :: max_ai=1
-! Boundaries for Coa. mode
-INTEGER(KIND=JPIM), PARAMETER :: min_ci=2
-INTEGER(KIND=JPIM), PARAMETER :: max_ci=4
-REAL(KIND=JPRB), PARAMETER    :: mf_acc_r1 = 0.313758
-REAL(KIND=JPRB), PARAMETER    :: mf_acc_r2 = 0.684043
-REAL(KIND=JPRB), PARAMETER    :: mf_coa_r1 = 0.00518309
-REAL(KIND=JPRB), PARAMETER    :: mf_coa_r2 = 0.980634
-
-REAL(KIND=JPRB), PARAMETER    :: ratio_coa = mf_coa_r1/mf_coa_r2
-REAL(KIND=JPRB), PARAMETER    :: ratio_acc = mf_acc_r2/mf_acc_r1
-REAL(KIND=JPRB), PARAMETER    :: denom_acc_inv = 1./(mf_acc_r1-ratio_coa*mf_acc_r2)
-REAL(KIND=JPRB), PARAMETER    :: denom_coa_inv = 1./(mf_coa_r2-ratio_acc*mf_coa_r1)
-REAL(KIND=JPRB), PARAMETER    :: mf_acc_r12_inv = 1./(mf_acc_r1+mf_acc_r2)
-REAL(KIND=JPRB), PARAMETER    :: mf_coa_r12_inv = 1./(mf_coa_r1+mf_coa_r2)
-
 REAL(KIND=JPRB), PARAMETER    :: mmr_ai=0.37E-4  ! cm
 REAL(KIND=JPRB), PARAMETER    :: mmr_ci=1.75E-4
 
@@ -107,10 +40,8 @@ REAL(KIND=JPRB), PARAMETER    :: mmr_ci=1.75E-4
 !-----------------------------------------------------------------------
 !*     0.1   ARGUMENTS
 !            ---------
-INTEGER(KIND=JPIM),     INTENT(IN)    :: IMM  ! not used
 TYPE(TEPHY),           INTENT(IN)    :: YDEPHY
 TYPE(TEAERMAP),        INTENT(INOUT) :: YDEAERMAP
-TYPE(TEAERSRC),        INTENT(IN)    :: YDEAERSRC
 
 INTEGER(KIND=JPIM),    INTENT(IN)    :: KIDIA
 INTEGER(KIND=JPIM),    INTENT(IN)    :: KFDIA
@@ -119,223 +50,47 @@ INTEGER(KIND=JPIM),    INTENT(IN)    :: KLEV
 INTEGER(KIND=JPIM),    INTENT(IN)    :: KTILES
 INTEGER(KIND=JPIM),    INTENT(IN)    :: KSW
 
-REAL(KIND=JPRB),       INTENT(IN)    :: GPGAW(KLON)
 REAL(KIND=JPRB),       INTENT(IN)    :: PLSM(KLON)
 REAL(KIND=JPRB),       INTENT(IN)    :: PWIND(KLON)        ! 10m wind speed, see tm5m7_src.F90
 REAL(KIND=JPRB),       INTENT(IN)    :: PSNS(KLON)         ! Snow depth
-REAL(KIND=JPRB),       INTENT(IN)    :: PZ0M(KLON)         ! Roughness length [m]
-REAL(KIND=JPRB),       INTENT(IN)    :: SP(KLON)           ! Surface pressure
-REAL(KIND=JPRB),       INTENT(IN)    :: PTL(KLON)          ! surface temperature
-REAL(KIND=JPRB),       INTENT(IN)    :: PSOIL_TYPE(KLON)
 REAL(KIND=JPRB),       INTENT(IN)    :: PFRTI(KLON,KTILES) ! Tile fraction (0-1)
 !  1 : Water                      5 : Snow on low-veg + bare-soil 
 !  2 : Ice                        6 : Dry snow-free high veg
 !  3 : Wet skin                   7 : snow under high-veg
 !  4 : Dry snow-free low-veg      8 : bare soil
-REAL(KIND=JPRB),       INTENT(IN)    :: PCVL(KLON), PCVH(KLON) ! Low/High vegetation cover
-INTEGER(KIND=JPIM),    INTENT(IN)    :: KTVL(KLON), KTVH(KLON) ! Low/High vegetation type
 ! M7 
 TYPE(MODAL_EMISSIONS), INTENT(INOUT) :: emis_mass(NMOD)
 TYPE(MODAL_EMISSIONS), INTENT(INOUT) :: emis_number(NMOD)
-REAL(KIND=JPRB),       INTENT(INOUT) :: PAERFLX(KLON,12,9) !diagnostic array/not used.
 REAL(KIND=JPRB),       INTENT(IN)    :: PGLON(KLON),PGLAT(KLON)
 REAL(KIND=JPRB),       INTENT(INOUT) :: PRWPWP, PRWSAT, PAERMAP(KLON,5)
 REAL(KIND=JPRB),       INTENT(IN)    :: PALB(KLON), PALBD(KLON,KSW)
 REAL(KIND=JPRB),       INTENT(IN)    :: PWS1(KLON),PHSDFOR(KLON)
 
-REAL(KIND=JPRB),         INTENT(IN) :: ISOILPH1(KLON), ISOILPH2(KLON), ISOILPH3(KLON), ISOILPH4(KLON), ISOILPH5(KLON), &
-                                       & IZ0AM(KLON), IPOTSRC(KLON), IAREA(KLON), ICULT(KLON)
-REAL(KIND=JPRB),        INTENT(IN) :: IZ0M(KLON), IFPAR(KLON)
-REAL(KIND=JPRB),        INTENT(IN) :: ILAI_MAX(KLON) ,ILAI_AVG(KLON) 
-REAL(KIND=JPRB),        INTENT(IN) :: ISOILTYPE(KLON)
-
 !*    0.5   LOCAL VARIABLES
 !           ---------------
-REAL(KIND=JPRB)               :: exp_Dstep, sqrt_2pi
 INTEGER(KIND=JPIM), PARAMETER ::  KBINDD=3 
-INTEGER(KIND=JPIM) :: JL, ID, JAER, INBAER
+INTEGER(KIND=JPIM) :: JL, JAER, INBAER
 
-REAL(KIND=JPRB)    :: FLUX_AI(KLON), FLUX_CI(KLON),FNUM_AI(KLON),FNUM_CI(KLON)
-REAL(KIND=JPRB)    :: FLUXTOT(NTRACED),FDUST(NTRACED) 
-REAL(KIND=JPRB)    :: FLUXTYP(NCLASS)
-REAL(KIND=JPRB)    :: ZDEPTILE
-REAL(KIND=JPRB)    :: TV_DAT(20) ! Local grid box fractions (0-1) for each of 
-                                 ! presumeably 20 IFS vegetation types
-! RCHG -> Here it i simportant to explain what are 9 , 12  
-!         => PROBABLY related to PAERFLUX dimensions 
 REAL(KIND=JPRB)    :: ZFLX_SDUST(KLON,9,12)
 REAL(KIND=JPRB)    :: ZSCC2(KLON), ZDEP2(KLON) 
 REAL(KIND=JPRB)    :: ZLTS2(KLON), ZLTSMIN(KLON), ZLTSMAX(KLON)
 REAL(KIND=JPRB)    :: ZWND3(KLON) 
 REAL(KIND=JPRB)    :: ZDUEMPOT(KLON,3)
-REAL(KIND=JPRB)    :: ZDEGRAD, ZFSWET, ZSWETN
+REAL(KIND=JPRB)    :: ZFSWET, ZSWETN
 REAL(KIND=JPRB)    :: ZRWPWP, ZRWSAT 
 REAL(KIND=JPRB)    :: ZEPSSNO, ZEPSARE
 REAL(KIND=JPRB)    :: ZREFSPD, ZRADREF, ZREFRAD
-REAL(KIND=JPRB)    :: ZAERDUB
 REAL(KIND=JPRB)    :: RDDUSRC(9)
 LOGICAL            :: LLDUST(KLON,12), LLPDUSTS(KLON)
 REAL(KIND=JPHOOK)  :: ZHOOK_HANDLE
-LOGICAL            :: TEGEN
-CHARACTER(LEN=45)  :: CLAERWND(0:3)
-!----------------------------------------------------------------
-! SOIL CARACTERISTICS:
-! ZOBLER texture classes:
-!----------------------------------------------------------------
-!! nats =12
-!! nspe =nmode*3+2  = 14 
-!! nmode=4
-INTEGER :: jp 
-
-!!!!>>>>>
-REAL(KIND=JPRB), DIMENSION(nats,nspe) :: solspe
-!--     soil type 1 : Coarse
-DATA (solspe(1,jp),jp=1,nspe)/  &
-     0.0707, 2.,  0.43 ,      &
-     0.0158, 2.,  0.4 ,       &
-     0.0015, 2.,  0.17 ,      &
-     0.0002 ,2.,  0. ,        &
-     2.1E-06,   0.2/
-!--     soil type 2 : Medium
-DATA (solspe(2,jp),jp=1,nspe)/  &
-     0.0707, 2.,  0. ,            &
-     0.0158, 2.,  0.37 ,          &
-     0.0015, 2.,  0.33 ,          &
-     0.0002, 2.,  0.3 ,           &
-     4.0e-6,    0.25/
-!--     soil type 3 : Fine
-DATA (solspe(3,jp),jp=1,nspe)/  &
-     0.0707, 2.,  0. ,            &
-     0.0158, 2.,  0. ,            &
-     0.0015, 2.,  0.33 ,          &
-     0.0002, 2.,  0.67 ,          &
-     !>>> TvN
-     ! 33% x 1e-5 + 67% x 1e-7 = 3.367e-6 cm^-1
-     !1.E-07,   0.5/
-     3.4e-6,   0.5/
-     !<<< TvN
-!--     soil type 4 : Coarse Medium
-DATA (solspe(4,jp),jp=1,nspe)/  &
-     0.0707, 2.,  0.1 ,           &
-     0.0158, 2.,  0.5 ,           &
-     0.0015, 2.,  0.2 ,           &
-     0.0002, 2.,  0.2 ,           &
-     2.7E-06,   0.23/
-!--     soil type 5 : Coarse Fine
-DATA (solspe(5,jp),jp=1,nspe)/  &
-     0.0707, 2.,  0. ,            &
-     0.0158, 2.,  0.5 ,           &
-     0.0015, 2.,  0.12 ,          &
-     0.0002, 2.,  0.38 ,          &
-     !>>> TvN
-     ! 50% x 1e-6 + 12% x 1e-5 + 38% x 1e-6 = 2.08e-6 cm^-1
-     !2.8E-06,   0.25/
-     2.1e-6,   0.25/
-     !<<< TvN
-!--     soil type 6 : Medium Fine
-DATA (solspe(6,jp),jp=1,nspe)/  &
-     0.0707, 2.,  0.   ,          &
-     0.0158, 2.,  0.27 ,          &
-     0.0015, 2.,  0.25 ,          &
-     0.0002, 2.,  0.48 ,          &
-     !>>> TvN
-     ! 27% x 1e-6 + 25% x 1e-5 + 48% x 1e-7 = 2.818e-6 cm^-1
-     !1e-07,   0.36/
-     2.8e-6,   0.36/
-     !<<< TvN
-!--     soil type 7 : Coarse, Medium, Fine
-DATA (solspe(7,jp),jp=1,nspe)/  &
-     0.0707, 2.,  0.23 ,          &
-     0.0158, 2.,  0.23 ,          &
-     0.0015, 2.,  0.19 ,          &
-     0.0002, 2.,  0.35 ,          &
-     2.5E-06,  0.25/
-!--     soil type 8 : Organic
-DATA (solspe(8,jp),jp=1,nspe)/  &
-     0.0707, 2.,  0.25 ,          &
-     0.0158, 2.,  0.25 ,          &
-     0.0015, 2.,  0.25 ,          &
-     0.0002, 2.,  0.25 ,          &
-     0.,   0.5/
-!--     soil type 9 : Ice
-DATA (solspe(9,jp),jp=1,nspe)/  &
-     0.0707,  2.,  0.25 ,         &
-     0.0158,  2.,  0.25 ,         &
-     0.0015,  2.,  0.25 ,         &
-     0.0002,  2.,  0.25 ,         &
-     0.,       0.5/
-!--     soil type 10 : Potential Lakes (additional)
-!       GENERAL CASE
-DATA (solspe(10,jp),jp=1,nspe)/  &
-     0.0707,  2.,  0. ,            &
-     0.0158,  2.,  0. ,            &
-     0.0015,  2.,  1. ,            &
-     0.0002,  2.,  0. ,            &
-     1.E-05,  0.25/
-!--     soil type 11 : Potential Lakes (clay)
-!       GENERAL CASE
-DATA (solspe(11,jp),jp=1,nspe)/  &
-     0.0707,  2.,  0. ,            &
-     0.0158,  2.,  0. ,            &
-     0.0015,  2.,  0. ,            &
-     0.0002,  2.,  1. ,            &
-     1.E-05,  0.25/
-!--     soil type 12 : Potential Lakes Australia
-DATA (solspe(12,jp),jp=1,nspe)/  &
-     0.0707,  2.,  0. ,            &
-     0.0158,  2.,  0. ,            &
-     0.0027,  2.,  1. ,            &
-     0.0002,  2.,  0. ,            &
-     1.E-05,  0.25/
-
-!!!!!!<<<<<
-!------------CRITICAL ARRAYS-------------
-REAL(KIND=JPRB)    :: SOIL_TYPE(KLON)
-REAL(KIND=JPRB)    :: POT_SOURCE(KLON)  ! Local potencial sources are calculated 
-REAL(KIND=JPRB)    :: CULT(KLON)        ! Local copy of cultivation 
-REAL(KIND=JPRB)    :: Z0(KLON)          ! Local copy of roughness lengthi
-REAL(KIND=JPRB)    :: FPAR(KLON)        ! Local copy of fraction photochem/radiation
-REAL(KIND=JPRB)    :: SOILPH(KLON)      ! Local copy of  [THIS SHOULD BE 5 different types] 
-
-REAL(KIND=JPRB) ::    UTH  (     NCLASS)
-REAL(KIND=JPRB) ::    SREL (NATS,NCLASS)
-REAL(KIND=JPRB) ::    SRELV(NATS,NCLASS)
-REAL(KIND=JPRB) ::    SU_SRELV(NATS,NCLASS)
-
-REAL(KIND=JPRB)    :: SNOWCOVER(KLON), DESERT(KLON)
-REAL(KIND=JPRB)    :: LAI_EFF(KLON),UMIN2(KLON), ALPHA(KLON), C_EFF(KLON)
-REAL(KIND=JPRB)    :: AREA(KLON)
-
-INTEGER(KIND=JPIM) :: NN, ND, NS, KK, NM, NSI, NP
-REAL(KIND=JPRB)    :: DP, STOTAL,STOTALV
-REAL(KIND=JPRB)    :: su_class(nclass), su_classv(nclass), utest(nats)
-
-REAL(KIND=JPRB)    :: VEGET, LAI_MAX, LAI_AVG, LAI_CUR, Z0S, DPD, FLUX_DIAM, CULTFAC1, DLAST
-REAL(KIND=JPRB)    :: AAA, BB, CCC, FF, FEFF, DBSTART, UTHP, WIND10M, USTAR
-REAL(KIND=JPRB)    :: XK, DDD, EE, FDP1, FDP2,temp_val
-REAL(KIND=JPRB)    :: SU, SUV, SU_LOC, SU_LOCV, XL, XM, XN, XNV
-REAL(KIND=JPRB)    :: FLUX_R1, FLUX_R2
-
-REAL(KIND=JPRB) :: log_dp, log_mmd, log_stdv
-REAL(KIND=JPRB), PARAMETER :: small_number = 1.0E-10
-
-INTEGER(KIND=JPIM) :: ISTAT, REGION
-INTEGER(KIND=JPIM) :: I, J, I_S1, I_S11, I_S111, IDUST, LAI_FLAG, MONTH, IVEG
-INTEGER(KIND=JPIM) :: KKK, KFIRST, KKMIN
-INTEGER(KIND=JPIM) :: I01, J01, I02, J02
-INTEGER(KIND=JPIM) :: I1, J1, I2, J2, ACCESS_MODE
-! saving the status of being called
-LOGICAL, SAVE :: initial = .TRUE.
 #include "abor1.intfb.h"
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 IF (LHOOK) CALL DR_HOOK('ECMWF_DUST_SCHEME',0,ZHOOK_HANDLE)
 
 ASSOCIATE( NDUSRCP       => YDEAERMAP%NDUSRCP, RDDUAER => YDEAERMAP%RDDUAER,   &
-         & RDUSRCP       => YDEAERMAP%RDUSRCP, NDDUST  => YDEAERSRC%NDDUST,    &
-         & NALBEDOSCHEME => YDEPHY%NALBEDOSCHEME, DCAL => YDEAERSRC%DCAL,     &
-         & NAERWND => YDEAERSRC%NAERWND) ! LE4ALB to NALBEDOSCHEME
-
-IF (NDDUST == 3 ) THEN ! case ECMWF formulation
+         & RDUSRCP       => YDEAERMAP%RDUSRCP,                                 &
+         & NALBEDOSCHEME => YDEPHY%NALBEDOSCHEME)
+! case ECMWF formulation
 !ZDDUAER(:) = 1.00_JPRB
 !KBINDD=3
 
@@ -918,29 +673,28 @@ ENDDO
 DO JAER=1,KBINDD
    INBAER=INBAER+1
    DO JL=KIDIA,KFDIA
-      IF (LLDUST(JL,NDDUST) .AND. ZFLX_SDUST(JL,JAER,NDDUST) > 0._JPRB) THEN
-         ZFLX_SDUST(JL,JAER,NDDUST)=ZFLX_SDUST(JL,JAER,NDDUST)
+      IF (LLDUST(JL,3) .AND. ZFLX_SDUST(JL,JAER,3) > 0._JPRB) THEN
+         ZFLX_SDUST(JL,JAER,3)=ZFLX_SDUST(JL,JAER,3)
       ENDIF
-      !PCFLX(JL,KAERO(INBAER))=-ZFLX_SDUST(JL,JAER,NDDUST) * 1.E+00_JPRB
+      !PCFLX(JL,KAERO(INBAER))=-ZFLX_SDUST(JL,JAER,3) * 1.E+00_JPRB
       if (JAER<2) then
          !----
          ! accumulation mode
          ! number
-         emis_number(mode_aci)%d3(JL,KLEV,1)   = emis_number(mode_aci)%d3(JL,KLEV,1) +ZFLX_SDUST(JL,JAER,NDDUST)* 3./(4.*RPI*ddust*mmr_ai**3) * EXP(4.5*LOG(sigma(iacci))**2)*1.E+3
+         emis_number(mode_aci)%d3(JL,KLEV,1)   = emis_number(mode_aci)%d3(JL,KLEV,1) +ZFLX_SDUST(JL,JAER,3)* 3./(4.*RPI*ddust*mmr_ai**3) * EXP(4.5*LOG(sigma(iacci))**2)*1.E+3
          ! mass
-         emis_mass(mode_aci)%d3(JL,KLEV,1)   = emis_mass(mode_aci)%d3(JL,KLEV,1)+ZFLX_SDUST(JL,JAER,NDDUST)!flux_ai(KIDIA:KFDIA)
+         emis_mass(mode_aci)%d3(JL,KLEV,1)   = emis_mass(mode_aci)%d3(JL,KLEV,1)+ZFLX_SDUST(JL,JAER,3)!flux_ai(KIDIA:KFDIA)
       else if(JAER>=2 )then
          
          ! ------------------------------
          ! coarse mode
          ! number
-         emis_number(mode_coi)%d3(JL,KLEV,1)   = emis_number(mode_coi)%d3(JL,KLEV,1) +ZFLX_SDUST(JL,JAER,NDDUST)* 3./(4.*RPI*ddust*mmr_ci**3) * EXP(4.5*LOG(sigma(icoai))**2)*1.E+3
+         emis_number(mode_coi)%d3(JL,KLEV,1)   = emis_number(mode_coi)%d3(JL,KLEV,1) +ZFLX_SDUST(JL,JAER,3)* 3./(4.*RPI*ddust*mmr_ci**3) * EXP(4.5*LOG(sigma(icoai))**2)*1.E+3
          ! mass
-         emis_mass(mode_coi)%d3(JL,KLEV,1)   = emis_mass(mode_coi)%d3(JL,KLEV,1) +ZFLX_SDUST(JL,JAER,NDDUST)
+         emis_mass(mode_coi)%d3(JL,KLEV,1)   = emis_mass(mode_coi)%d3(JL,KLEV,1) +ZFLX_SDUST(JL,JAER,3)
       end if
    ENDDO
 END DO
-END IF
 END ASSOCIATE
 IF (LHOOK) CALL DR_HOOK('ECMWF_DUST_SCHEME',1,ZHOOK_HANDLE)
 END SUBROUTINE ECMWF_DUST_SCHEME
