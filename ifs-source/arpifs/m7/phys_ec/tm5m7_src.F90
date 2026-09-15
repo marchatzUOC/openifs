@@ -419,19 +419,25 @@ PAERFLX(KIDIA:KFDIA,1:12,1:9)=0._JPRB
 ZAERMAP(KIDIA:KFDIA,1:5)=0._JPRB
 SELECT CASE (NDDUST)
 CASE (8)
-  CALL TEGEN_DUST_SCHEME( YDEAERSRC, KIDIA, KFDIA, KLON, KLEV, KTILES, &
-                        & PLSM, ZWNDDU, PSNS, &
-                        & PAP(:,KLEV), PTL, &
+  CALL TEGEN_DUST_SCHEME( YDEPHY, YDEAERMAP, YDEAERSRC, KIDIA, KFDIA, KLON, KLEV, KTILES, KSW,&
+                        & PLSM, ZWNDDU, PSNS, PZ0M, &
+                        & PAP(:,KLEV), PTL,  PSOIL_TYPE, &
                         & PFRTI, PCVL, PCVH, KTVL, KTVH, &
-                        & emis_mass, emis_number, &
-                        & ISOILPH3, ISOILPH4, &
-                        & IZ0AM, IPOTSRC, ISOILTYPE, ICULT,IZ0M, IFPAR, &
+                        & emis_mass, emis_number, PAERFLX, ZGLON, ZGLAT, &
+                        & ZRWPWP, ZRWSAT, ZAERMAP, PALB, PALBD, PWS1, PHSDFOR, &
+                        & IMM,ISOILPH1, ISOILPH2, ISOILPH3, ISOILPH4, ISOILPH5, &
+                        & IZ0AM, IPOTSRC, ISOILTYPE, IAREA, ICULT,IZ0M, IFPAR, GPGAW, &
                         & ILAI_MAX, ILAI_AVG)
 CASE (3)
-  CALL ECMWF_DUST_SCHEME( YDEPHY, YDEAERMAP, KIDIA, KFDIA, KLON, KLEV, KTILES, KSW,&
-                        & PLSM, ZWNDDU, PSNS, PFRTI, &
-                        & emis_mass, emis_number, ZGLON, ZGLAT, &
-                        & ZRWPWP, ZRWSAT, ZAERMAP, PALB, PALBD, PWS1, PHSDFOR)
+  CALL ECMWF_DUST_SCHEME( YDEPHY, YDEAERMAP, YDEAERSRC, KIDIA, KFDIA, KLON, KLEV, KTILES, KSW,&
+                        & PLSM, ZWNDDU, PSNS, PZ0M, &
+                        & PAP(:,KLEV), PTL,  PSOIL_TYPE, &
+                        & PFRTI, PCVL, PCVH, KTVL, KTVH, &
+                        & emis_mass, emis_number, PAERFLX, ZGLON, ZGLAT, &
+                        & ZRWPWP, ZRWSAT, ZAERMAP, PALB, PALBD, PWS1, PHSDFOR, &
+                        & IMM,ISOILPH1, ISOILPH2, ISOILPH3, ISOILPH4, ISOILPH5, &
+                        & IZ0AM, IPOTSRC, ISOILTYPE, IAREA, ICULT,IZ0M, IFPAR, GPGAW, &
+                        & ILAI_MAX, ILAI_AVG)
 END SELECT
 !-----------------------------------------------------------------------
 !*       3.0   PARTICULATE ORGANIC MATTER

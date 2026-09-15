@@ -2,29 +2,35 @@ MODULE TEGEN_DUST_SCHEME_MOD
 
 CONTAINS
 
-SUBROUTINE TEGEN_DUST_SCHEME( YDEAERSRC,                                   &
-                         & KIDIA, KFDIA, KLON, KLEV, KTILES,              &
-                         & PLSM , PWIND, PSNS,                            &
-                         & SP, PTL,                                       &
-                         & PFRTI, PCVL, PCVH, KTVL, KTVH,                 &
-                         & EMIS_MASS, EMIS_NUMBER,                        &
-                         & ISOILPH3, ISOILPH4,                            &
-                         & IZ0AM, IPOTSRC, ISOILTYPE, ICULT, IZ0M, IFPAR, &
+SUBROUTINE TEGEN_DUST_SCHEME( YDEPHY, YDEAERMAP, YDEAERSRC,                 &
+                         & KIDIA, KFDIA, KLON, KLEV, KTILES, KSW,        &
+                         & PLSM , PWIND, PSNS, PZ0M,                     &
+                         & SP, PTL, PSOIL_TYPE,                          &
+                         & PFRTI, PCVL, PCVH, KTVL, KTVH,                &
+                         & EMIS_MASS, EMIS_NUMBER ,PAERFLX,PGLON, PGLAT, &
+                         & PRWPWP,PRWSAT,PAERMAP,PALB,PALBD,PWS1,PHSDFOR,&
+                         & IMM,ISOILPH1, ISOILPH2, ISOILPH3, ISOILPH4, ISOILPH5, &
+                         & IZ0AM, IPOTSRC, ISOILTYPE, IAREA, ICULT,IZ0M, IFPAR, GPGAW,&
                          & ILAI_MAX,ILAI_AVG)
 
 ! --- IFS/OpenIFS modules ------------------------------------------------------
 
+USE TYPE_MODEL,ONLY : MODEL
+USE YOMLUN,    ONLY : NULOUT
 USE PARKIND1  ,ONLY : JPIM     ,JPRB
 USE YOMHOOK   ,ONLY : LHOOK,   DR_HOOK, JPHOOK
 USE YOMCST,    ONLY : RPI
 
 ! -- M7 modules ----------------------------------------------------------------
-USE TM5M7_DATA,      ONLY: NMOD, MODE_ACI, MODE_COI, sigma, &
+USE TM5M7_DATA,      ONLY: NMOD, MODE_ACI, MODE_COI, sigma, sigma_lognormal,   &
                          & iacci,icoai
 !                       
 USE TM5M7_EMIS_DATA, ONLY: MODAL_EMISSIONS,                           &
+                         & nsoilph, nfpar,    &
                          & vkarman!,         &
 
+USE YOEPHY   , ONLY : TEPHY
+USE YOEAERMAP, ONLY : TEAERMAP
 USE YOEAERSRC, ONLY : TEAERSRC
 
 !------------------------------------------------------------------------------!
@@ -43,11 +49,14 @@ INTEGER, PARAMETER            :: nmode=4                       ! number of parti
                                                                  ! medium/fine sand, and coarse sand
 INTEGER, PARAMETER            :: nspe=nmode*3+2                ! for explanation, see below
 REAL(KIND=JPRB), PARAMETER    :: xmair=28.94 ! mass of air, g/mol
+REAL(KIND=JPRB), PARAMETER    :: xmdust=xmair
 ! Constants used in the parameterization of the efficient friction velocity ratio,
 ! see Eqs. (17-20) in MB95:
 REAL(KIND=JPRB), PARAMETER    :: aeff=0.35
 REAL(KIND=JPRB), PARAMETER    :: xeff=10.
 REAL(KIND=JPRB), PARAMETER    :: u1fac=0.6    ! 0.7 in EC-Earth 3.2.3
+REAL(KIND=JPRB), PARAMETER    :: ddcal=0.1   
+
 REAL(KIND=JPRB), PARAMETER    :: cd=1.2507E-06                 ! flux dimensioning parameter [g s^2/cm^4]
 REAL(KIND=JPRB), PARAMETER    :: z0_min=1.e-2
 REAL(KIND=JPRB), PARAMETER    :: lai_lim=0.25
@@ -71,6 +80,7 @@ REAL(KIND=JPRB)               :: airdens_ratio, airdens_ratio2
 REAL(KIND=JPRB), PARAMETER    :: umin=13.75                    ! minimum threshold friction velocity (cm/s)
 REAL(KIND=JPRB), PARAMETER    :: ZZ=1000.                      ! wind measurement height (cm)
 REAL(KIND=JPRB), PARAMETER    :: ddust   = 2.650              ! Density          du     [g cm-3]
+REAL(KIND=JPRB), PARAMETER    :: dust_density = ddust * 1.e3
 
 INTEGER(KIND=JPIM), PARAMETER :: min_ai=1
 INTEGER(KIND=JPIM), PARAMETER :: max_ai=1
@@ -97,18 +107,26 @@ REAL(KIND=JPRB), PARAMETER    :: mmr_ci=1.75E-4
 !-----------------------------------------------------------------------
 !*     0.1   ARGUMENTS
 !            ---------
+INTEGER(KIND=JPIM),     INTENT(IN)    :: IMM  ! not used
+TYPE(TEPHY),           INTENT(IN)    :: YDEPHY
+TYPE(TEAERMAP),        INTENT(INOUT) :: YDEAERMAP
 TYPE(TEAERSRC),        INTENT(IN)    :: YDEAERSRC
+
 INTEGER(KIND=JPIM),    INTENT(IN)    :: KIDIA
 INTEGER(KIND=JPIM),    INTENT(IN)    :: KFDIA
 INTEGER(KIND=JPIM),    INTENT(IN)    :: KLON
 INTEGER(KIND=JPIM),    INTENT(IN)    :: KLEV
 INTEGER(KIND=JPIM),    INTENT(IN)    :: KTILES
+INTEGER(KIND=JPIM),    INTENT(IN)    :: KSW
 
+REAL(KIND=JPRB),       INTENT(IN)    :: GPGAW(KLON)
 REAL(KIND=JPRB),       INTENT(IN)    :: PLSM(KLON)
 REAL(KIND=JPRB),       INTENT(IN)    :: PWIND(KLON)        ! 10m wind speed, see tm5m7_src.F90
 REAL(KIND=JPRB),       INTENT(IN)    :: PSNS(KLON)         ! Snow depth
+REAL(KIND=JPRB),       INTENT(IN)    :: PZ0M(KLON)         ! Roughness length [m]
 REAL(KIND=JPRB),       INTENT(IN)    :: SP(KLON)           ! Surface pressure
 REAL(KIND=JPRB),       INTENT(IN)    :: PTL(KLON)          ! surface temperature
+REAL(KIND=JPRB),       INTENT(IN)    :: PSOIL_TYPE(KLON)
 REAL(KIND=JPRB),       INTENT(IN)    :: PFRTI(KLON,KTILES) ! Tile fraction (0-1)
 !  1 : Water                      5 : Snow on low-veg + bare-soil 
 !  2 : Ice                        6 : Dry snow-free high veg
@@ -119,24 +137,47 @@ INTEGER(KIND=JPIM),    INTENT(IN)    :: KTVL(KLON), KTVH(KLON) ! Low/High vegeta
 ! M7 
 TYPE(MODAL_EMISSIONS), INTENT(INOUT) :: emis_mass(NMOD)
 TYPE(MODAL_EMISSIONS), INTENT(INOUT) :: emis_number(NMOD)
-REAL(KIND=JPRB),         INTENT(IN) :: ISOILPH3(KLON), ISOILPH4(KLON), &
-                                       & IZ0AM(KLON), IPOTSRC(KLON), ICULT(KLON)
+REAL(KIND=JPRB),       INTENT(INOUT) :: PAERFLX(KLON,12,9) !diagnostic array/not used.
+REAL(KIND=JPRB),       INTENT(IN)    :: PGLON(KLON),PGLAT(KLON)
+REAL(KIND=JPRB),       INTENT(INOUT) :: PRWPWP, PRWSAT, PAERMAP(KLON,5)
+REAL(KIND=JPRB),       INTENT(IN)    :: PALB(KLON), PALBD(KLON,KSW)
+REAL(KIND=JPRB),       INTENT(IN)    :: PWS1(KLON),PHSDFOR(KLON)
+
+REAL(KIND=JPRB),         INTENT(IN) :: ISOILPH1(KLON), ISOILPH2(KLON), ISOILPH3(KLON), ISOILPH4(KLON), ISOILPH5(KLON), &
+                                       & IZ0AM(KLON), IPOTSRC(KLON), IAREA(KLON), ICULT(KLON)
 REAL(KIND=JPRB),        INTENT(IN) :: IZ0M(KLON), IFPAR(KLON)
 REAL(KIND=JPRB),        INTENT(IN) :: ILAI_MAX(KLON) ,ILAI_AVG(KLON) 
 REAL(KIND=JPRB),        INTENT(IN) :: ISOILTYPE(KLON)
 
 !*    0.5   LOCAL VARIABLES
 !           ---------------
-INTEGER(KIND=JPIM) :: JL, ID
+REAL(KIND=JPRB)               :: exp_Dstep, sqrt_2pi
+INTEGER(KIND=JPIM), PARAMETER ::  KBINDD=3 
+INTEGER(KIND=JPIM) :: JL, ID, JAER, INBAER
 
 REAL(KIND=JPRB)    :: FLUX_AI(KLON), FLUX_CI(KLON),FNUM_AI(KLON),FNUM_CI(KLON)
+REAL(KIND=JPRB)    :: FLUXTOT(NTRACED),FDUST(NTRACED) 
 REAL(KIND=JPRB)    :: FLUXTYP(NCLASS)
 REAL(KIND=JPRB)    :: ZDEPTILE
 REAL(KIND=JPRB)    :: TV_DAT(20) ! Local grid box fractions (0-1) for each of 
                                  ! presumeably 20 IFS vegetation types
 ! RCHG -> Here it i simportant to explain what are 9 , 12  
 !         => PROBABLY related to PAERFLUX dimensions 
+REAL(KIND=JPRB)    :: ZFLX_SDUST(KLON,9,12)
+REAL(KIND=JPRB)    :: ZSCC2(KLON), ZDEP2(KLON) 
+REAL(KIND=JPRB)    :: ZLTS2(KLON), ZLTSMIN(KLON), ZLTSMAX(KLON)
+REAL(KIND=JPRB)    :: ZWND3(KLON) 
+REAL(KIND=JPRB)    :: ZDUEMPOT(KLON,3)
+REAL(KIND=JPRB)    :: ZDEGRAD, ZFSWET, ZSWETN
+REAL(KIND=JPRB)    :: ZRWPWP, ZRWSAT 
+REAL(KIND=JPRB)    :: ZEPSSNO, ZEPSARE
+REAL(KIND=JPRB)    :: ZREFSPD, ZRADREF, ZREFRAD
+REAL(KIND=JPRB)    :: ZAERDUB
+REAL(KIND=JPRB)    :: RDDUSRC(9)
+LOGICAL            :: LLDUST(KLON,12), LLPDUSTS(KLON)
 REAL(KIND=JPHOOK)  :: ZHOOK_HANDLE
+LOGICAL            :: TEGEN
+CHARACTER(LEN=45)  :: CLAERWND(0:3)
 !----------------------------------------------------------------
 ! SOIL CARACTERISTICS:
 ! ZOBLER texture classes:
@@ -251,8 +292,10 @@ DATA (solspe(12,jp),jp=1,nspe)/  &
 !------------CRITICAL ARRAYS-------------
 REAL(KIND=JPRB)    :: SOIL_TYPE(KLON)
 REAL(KIND=JPRB)    :: POT_SOURCE(KLON)  ! Local potencial sources are calculated 
+REAL(KIND=JPRB)    :: CULT(KLON)        ! Local copy of cultivation 
 REAL(KIND=JPRB)    :: Z0(KLON)          ! Local copy of roughness lengthi
 REAL(KIND=JPRB)    :: FPAR(KLON)        ! Local copy of fraction photochem/radiation
+REAL(KIND=JPRB)    :: SOILPH(KLON)      ! Local copy of  [THIS SHOULD BE 5 different types] 
 
 REAL(KIND=JPRB) ::    UTH  (     NCLASS)
 REAL(KIND=JPRB) ::    SREL (NATS,NCLASS)
@@ -261,26 +304,41 @@ REAL(KIND=JPRB) ::    SU_SRELV(NATS,NCLASS)
 
 REAL(KIND=JPRB)    :: SNOWCOVER(KLON), DESERT(KLON)
 REAL(KIND=JPRB)    :: LAI_EFF(KLON),UMIN2(KLON), ALPHA(KLON), C_EFF(KLON)
+REAL(KIND=JPRB)    :: AREA(KLON)
 
 INTEGER(KIND=JPIM) :: NN, ND, NS, KK, NM, NSI, NP
 REAL(KIND=JPRB)    :: DP, STOTAL,STOTALV
 REAL(KIND=JPRB)    :: su_class(nclass), su_classv(nclass), utest(nats)
 
-REAL(KIND=JPRB)    :: VEGET, LAI_MAX, LAI_AVG, LAI_CUR, Z0S, DPD, FLUX_DIAM, DLAST
-REAL(KIND=JPRB)    :: AAA, BB, CCC, FF, FEFF, DBSTART, UTHP, USTAR
+REAL(KIND=JPRB)    :: VEGET, LAI_MAX, LAI_AVG, LAI_CUR, Z0S, DPD, FLUX_DIAM, CULTFAC1, DLAST
+REAL(KIND=JPRB)    :: AAA, BB, CCC, FF, FEFF, DBSTART, UTHP, WIND10M, USTAR
 REAL(KIND=JPRB)    :: XK, DDD, EE, FDP1, FDP2,temp_val
 REAL(KIND=JPRB)    :: SU, SUV, SU_LOC, SU_LOCV, XL, XM, XN, XNV
 REAL(KIND=JPRB)    :: FLUX_R1, FLUX_R2
 
-INTEGER(KIND=JPIM) :: I_S1, I_S11, IDUST
+REAL(KIND=JPRB) :: log_dp, log_mmd, log_stdv
+REAL(KIND=JPRB), PARAMETER :: small_number = 1.0E-10
+
+INTEGER(KIND=JPIM) :: ISTAT, REGION
+INTEGER(KIND=JPIM) :: I, J, I_S1, I_S11, I_S111, IDUST, LAI_FLAG, MONTH, IVEG
 INTEGER(KIND=JPIM) :: KKK, KFIRST, KKMIN
+INTEGER(KIND=JPIM) :: I01, J01, I02, J02
+INTEGER(KIND=JPIM) :: I1, J1, I2, J2, ACCESS_MODE
 ! saving the status of being called
 LOGICAL, SAVE :: initial = .TRUE.
 #include "abor1.intfb.h"
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 IF (LHOOK) CALL DR_HOOK('TEGEN_DUST_SCHEME',0,ZHOOK_HANDLE)
 
-ASSOCIATE( DCAL => YDEAERSRC%DCAL )
+ASSOCIATE( NDUSRCP       => YDEAERMAP%NDUSRCP, RDDUAER => YDEAERMAP%RDDUAER,   &
+         & RDUSRCP       => YDEAERMAP%RDUSRCP, NDDUST  => YDEAERSRC%NDDUST,    &
+         & NALBEDOSCHEME => YDEPHY%NALBEDOSCHEME, DCAL => YDEAERSRC%DCAL,     &
+         & NAERWND => YDEAERSRC%NAERWND) ! LE4ALB to NALBEDOSCHEME
+
+CLAERWND(0) = '10-M WIND AS PREDICTOR FOR SS AND DU         '
+CLAERWND(1) = 'PREDICTORS: WIND GUST FOR SS, 10M-WIND FOR DU'
+CLAERWND(2) = 'PREDICTORS: WIND GUST FOR DU, 10M-WIND FOR SS'
+CLAERWND(3) = 'WIND GUST AS PREDICTORS FOR SS AND DU        '
 
 ! =========================== INIT
 !IF( initial ) THEN
@@ -477,7 +535,7 @@ ASSOCIATE( DCAL => YDEAERSRC%DCAL )
 
 ZFLX_SDUST(KIDIA:KFDIA,1:9,1:12)=0._JPRB
     
-! Tegen dust formulation
+DUSTOPT: If (NDDUST==8) then
   
   ! Make local copy:
   uthp = 0._JPRB
@@ -1018,6 +1076,7 @@ ZFLX_SDUST(KIDIA:KFDIA,1:9,1:12)=0._JPRB
       emis_mass(mode_coi)%d3(JL,KLEV,1)   = emis_mass(mode_coi)%d3(JL,KLEV,1)+flux_ci(JL)
     ENDDO
 
+END IF DUSTOPT
 END ASSOCIATE
 IF (LHOOK) CALL DR_HOOK('TEGEN_DUST_SCHEME',1,ZHOOK_HANDLE)
 END SUBROUTINE TEGEN_DUST_SCHEME
