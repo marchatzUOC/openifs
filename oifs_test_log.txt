@@ -1,0 +1,7 @@
+[INFO]: Site/host of platform = bsc and the platform = mn5-gpp, using arch file ./arch/bsc/mn5-gpp
+[INFO]: Number of threads defined as argument using -j
+        Number of threads = 112 for mn5-gpp
+[INFO]: Build launcher - 
+[INFO]: Build command -  ./openifs-bundle build --threads=112 --with-single-precision --init-snan --openifs-only --with-scmec --arch=./arch/bsc/mn5-gpp
+[INFO]: build step complete
+[INFO]: See /gpfs/scratch/bsc32/bsc032198/gitlab_bsc/openifs-48r1/build/build.log for build details
